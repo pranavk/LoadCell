@@ -78,6 +78,27 @@ void SystemClock_Config(void);
 
 /* USER CODE END 0 */
 
+void transmit(char c) 
+{
+	while (!(USART3->ISR & USART_ISR_TXE)) {
+		// busy wait for trasnmit to become empty
+	}
+	// write data into transmit data register
+	USART3->TDR = c;
+}
+
+void transmitval(int val) {
+	int newval = val / 10;
+	if (newval == 0) {
+		transmit('0' + val % 10);
+		return;
+	}
+
+	transmitval(val/10);
+	transmit('0' + val % 10);
+}
+
+
 static void MX_GPIO_Init(void)
 {
   /* GPIO Ports Clock Enable */
@@ -104,6 +125,31 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 }
 
+static void MX_UART3_Init(void) {
+	__HAL_RCC_USART3_CLK_ENABLE();
+	// Set PC4,5 to AF mode
+	GPIOC->MODER |= GPIO_MODER_MODER4_1;
+	GPIOC->MODER &= ~GPIO_MODER_MODER4_0;
+	GPIOC->MODER |= GPIO_MODER_MODER5_1;
+	GPIOC->MODER &= ~GPIO_MODER_MODER5_0;
+
+	// Set AF1
+	GPIOC->AFR[0] &= ~(GPIO_AFRL_AFSEL4);
+	GPIOC->AFR[0] |= (0x1 << GPIO_AFRL_AFSEL4_Pos);
+	GPIOC->AFR[0] &= ~(GPIO_AFRL_AFSEL5);
+	GPIOC->AFR[0] |= (0x1 << GPIO_AFRL_AFSEL5_Pos);
+	
+	// 8 MHz / 115200 bits = 69.4444
+	USART3->BRR = 0x45; // equivalent to 69
+	
+	// enable transmittter/ receiver and main peripheral enable bit
+	USART3->CR1 |= USART_CR1_TE;
+	USART3->CR1 |= USART_CR1_RE;
+	USART3->CR1 |= USART_CR1_RXNEIE;
+	
+	USART3->CR1 |= USART_CR1_UE;
+}
+
 uint32_t HXGetValue() {
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET);
 	while (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7) == GPIO_PIN_SET) {
@@ -113,7 +159,7 @@ uint32_t HXGetValue() {
 	
 	// run the clock
 	uint32_t data = 0;
-	for (int i = 0; i < 24; i++) {
+	for (int i = 0; i < 23; i++) {
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
 		
 		data = data << 1;
@@ -157,14 +203,19 @@ int main(void)
   /* USER CODE BEGIN SysInit */
 	MX_GPIO_Init();
   /* USER CODE END SysInit */
-
+	MX_UART3_Init();
+	
   /* USER CODE BEGIN WHILE */
   while (1)
   {
 		uint32_t data = HXGetValue();
-		if (data < 100) {
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
-		}
+		int value = (int)data;
+		transmitval(value);
+		
+		transmit('\r');
+		transmit('\n');
+		
+		HAL_Delay(5000);
   }
   /* USER CODE END 3 */
 }
